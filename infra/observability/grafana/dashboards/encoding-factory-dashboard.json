@@ -1,0 +1,218 @@
+{
+  "id": null,
+  "uid": "hyperscale-video-encoding-factory",
+  "title": "Hyperscale Video Platform — Encoding Factory (USE)",
+  "description": "USE metrics (Utilization, Saturation, Errors) for the distributed-encoding-orchestrator worker pool and job pipeline, plus job-completion and circuit-breaker panels. Metric names correspond to the WorkerPool (internal/worker), FfmpegFailureCircuitBreaker (internal/ffmpeg/circuitBreaker.go), and retryPolicy (internal/worker/retryPolicy.go) components documented in docs/architecture.md's Distributed Encoding Factory plane. Not yet confirmed against a live scrape — see infra/observability/README.md.",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "timezone": "utc",
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "tags": ["hyperscale-video-platform", "use-metrics", "encoding-factory"],
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Utilization — worker pool",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "gauge",
+      "title": "Worker pool utilization (active / max concurrency)",
+      "description": "encoding_worker_pool_active_workers / encoding_worker_pool_max_concurrency — the bounded-goroutine WorkerPool described in docs/architecture.md plane 2.",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "hyperscalePlatformPrometheusDatasource" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.75 },
+              { "color": "red", "value": 0.95 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg(encoding_worker_pool_active_workers{service=\"distributed-encoding-orchestrator\"}) / avg(encoding_worker_pool_max_concurrency{service=\"distributed-encoding-orchestrator\"})"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Active workers vs. max concurrency over time",
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "hyperscalePlatformPrometheusDatasource" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "expr": "avg(encoding_worker_pool_active_workers{service=\"distributed-encoding-orchestrator\"})", "legendFormat": "active workers" },
+        { "refId": "B", "expr": "avg(encoding_worker_pool_max_concurrency{service=\"distributed-encoding-orchestrator\"})", "legendFormat": "max concurrency (bounded fleet size)" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "row",
+      "title": "Saturation — job queue depth",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Chunk-encoding job queue depth",
+      "description": "encoding_job_queue_depth — tasks waiting on the Dispatcher -> JobQueue before a WorkerPool goroutine picks them up. Sustained growth indicates the fleet is saturated relative to incoming ChunkEncodingTask fan-out.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "hyperscalePlatformPrometheusDatasource" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "expr": "encoding_job_queue_depth{service=\"distributed-encoding-orchestrator\"}", "legendFormat": "queued chunk-encoding tasks" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Job dispatch overhead (p99)",
+      "description": "Target from docs/slo-sli-sla.md §3: dispatch overhead negligible relative to encode time. histogram_quantile over encoding_job_dispatch_duration_seconds_bucket.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "hyperscalePlatformPrometheusDatasource" },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.99, sum(rate(encoding_job_dispatch_duration_seconds_bucket{service=\"distributed-encoding-orchestrator\"}[$__rate_interval])) by (le))", "legendFormat": "p99 dispatch overhead" }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "row",
+      "title": "Errors — ffmpeg subprocess circuit breaker & retries",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "FfmpegFailureCircuitBreaker state (internal/ffmpeg/circuitBreaker.go)",
+      "description": "encoding_circuit_breaker_state: 0=CLOSED, 1=HALF_OPEN, 2=OPEN. See chaos-testing/experiments/kill-encoding-worker-mid-job-verify-circuit-breaker-retry.sh for the experiment that exercises this transition.",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 19 },
+      "datasource": { "type": "prometheus", "uid": "hyperscalePlatformPrometheusDatasource" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "CLOSED", "color": "green" } } },
+            { "type": "value", "options": { "1": { "text": "HALF_OPEN", "color": "orange" } } },
+            { "type": "value", "options": { "2": { "text": "OPEN", "color": "red" } } }
+          ]
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value_and_name", "colorMode": "background" },
+      "targets": [{ "refId": "A", "expr": "max(encoding_circuit_breaker_state{service=\"distributed-encoding-orchestrator\"})" }]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "ffmpeg subprocess failure rate + retry attempts",
+      "description": "sum(rate(encoding_ffmpeg_subprocess_failures_total[$__rate_interval])) and sum(rate(encoding_worker_retry_attempts_total[$__rate_interval])) by (attempt_number) — the retryPolicy.go exponential-backoff retries (target: worker resumes within 3 retry attempts per docs/slo-sli-sla.md §3).",
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 19 },
+      "datasource": { "type": "prometheus", "uid": "hyperscalePlatformPrometheusDatasource" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(encoding_ffmpeg_subprocess_failures_total{service=\"distributed-encoding-orchestrator\"}[$__rate_interval]))", "legendFormat": "ffmpeg subprocess failures/sec" },
+        { "refId": "B", "expr": "sum(rate(encoding_worker_retry_attempts_total{service=\"distributed-encoding-orchestrator\"}[$__rate_interval])) by (attempt_number)", "legendFormat": "retry attempt #{{attempt_number}}" }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Job completion & throughput",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Chunk-encoding job completion rate (success vs. permanent failure)",
+      "description": "sum(rate(encoding_jobs_completed_total[$__rate_interval])) by (outcome) where outcome in {succeeded, permanently_failed}.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "hyperscalePlatformPrometheusDatasource" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "stacking": { "mode": "normal" } } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "permanently_failed" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
+          { "matcher": { "id": "byName", "options": "succeeded" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(encoding_jobs_completed_total{service=\"distributed-encoding-orchestrator\"}[$__rate_interval])) by (outcome)", "legendFormat": "{{outcome}}" }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "2-hour film encode wall-clock estimate (rolling)",
+      "description": "Target from docs/slo-sli-sla.md §3: full 500-worker-fleet 2-hour film encode < 8 minutes wall-clock. encoding_job_wallclock_seconds is emitted per completed EncodingJob.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "hyperscalePlatformPrometheusDatasource" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "thresholdsStyle": { "mode": "line" } },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 480 }] }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.50, sum(rate(encoding_job_wallclock_seconds_bucket{service=\"distributed-encoding-orchestrator\"}[$__rate_interval])) by (le))", "legendFormat": "p50 job wall-clock" }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Encode cost — CPU/GPU-seconds this window (CostAccountant)",
+      "description": "sum(increase(encoding_cost_accountant_cpu_seconds_total[1h])) and the GPU equivalent — emitted by the concurrently-developed CostAccountant component referenced in docs/cost-dashboard.md. Included here as a forward-looking panel; verify the exact metric name once CostAccountant ships its exporter.",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "hyperscalePlatformPrometheusDatasource" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value_and_name" },
+      "targets": [
+        { "refId": "A", "expr": "sum(increase(encoding_cost_accountant_cpu_seconds_total{service=\"distributed-encoding-orchestrator\"}[1h]))", "legendFormat": "CPU-seconds (1h)" },
+        { "refId": "B", "expr": "sum(increase(encoding_cost_accountant_gpu_seconds_total{service=\"distributed-encoding-orchestrator\"}[1h]))", "legendFormat": "GPU-seconds (1h)" }
+      ]
+    }
+  ]
+}

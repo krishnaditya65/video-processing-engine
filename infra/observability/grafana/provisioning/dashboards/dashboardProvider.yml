@@ -1,0 +1,16 @@
+# Auto-loads every dashboard JSON file placed in grafana/dashboards/ on
+# container start, so "Platform Overview" and "Encoding Factory" (and any
+# dashboard added later) show up without manual import.
+apiVersion: 1
+
+providers:
+  - name: hyperscale-video-platform-dashboards
+    orgId: 1
+    folder: "Hyperscale Video Platform"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/json
+      foldersFromFilesStructure: false

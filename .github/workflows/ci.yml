@@ -1,0 +1,289 @@
+########################################################################
+# Continuous Integration — Hyperscale Video Processing Engine
+#
+# One job per service, each running that service's REAL test command
+# (matching docs/testing-and-benchmarking.md's "How to Reproduce These
+# Results" section verbatim):
+#
+#   control-plane-api-gateway (TS)          -> npm test
+#   analytics-telemetry-platform (TS)       -> npm test
+#   ingestion-inspection-service (Python)   -> venv + pip install + pytest -v
+#   predictive-qoe-ml-service (Python)      -> venv + pip install + pytest -v
+#   distributed-encoding-orchestrator (Go)  -> go test ./... -race
+#   edge-packaging-and-manifest-service (Go)-> go test ./... -race -count=1
+#   multi-cdn-edge-routing-service (Go)     -> go test ./... -race
+#     (the 3rd Go service, added by a concurrent sibling work-stream —
+#     included here even though it was still being scaffolded at the time
+#     this workflow was authored; its job is written against the same
+#     go.mod-declared toolchain version as the other two Go services and
+#     will simply have nothing to test yet if its test files don't exist
+#     when this workflow first runs)
+#
+# Toolchain versions below are read directly from each service's own
+# manifest, not guessed:
+#   - go.mod            `go 1.26.3` for all three Go services
+#   - package.json       no `engines.node` pin for control-plane-api-gateway;
+#                        `engines.node: ">=18.17.0"` for analytics-telemetry-platform
+#                        -> Node 20 LTS used for both (satisfies both, and
+#                           is what @nestjs/* v10 / TypeScript 5.5 target)
+#   - pyproject.toml     `requires-python = ">=3.10"` for both Python
+#                        services -> Python 3.11 used (within range, matches
+#                        the newest broadly-available CI runtime at
+#                        authoring time)
+#
+# This workflow file was validated for well-formedness with:
+#   python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))"
+# (see .github/workflows/README is not present; see the top-level
+# docs/testing-and-benchmarking.md for the human-authored equivalent of
+# what these jobs automate) — it was NOT executed against a real GitHub
+# Actions runner in this environment (no live GitHub Actions runner
+# available here); see each job for what it runs and why that mirrors a
+# command that WAS actually run and verified per-service, per
+# docs/testing-and-benchmarking.md.
+########################################################################
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.11"
+  GO_VERSION: "1.26.3"
+
+jobs:
+  # =====================================================================
+  # TypeScript services
+  # =====================================================================
+  control-plane-api-gateway-tests:
+    name: control-plane-api-gateway (npm test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/control-plane-api-gateway
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: services/control-plane-api-gateway/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check (tsc --noEmit)
+        run: npx tsc --noEmit
+
+      - name: Run unit test suite
+        run: npm test
+
+      - name: Run e2e test suite
+        run: npm run test:e2e
+
+  analytics-telemetry-platform-tests:
+    name: analytics-telemetry-platform (npm test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/analytics-telemetry-platform
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: services/analytics-telemetry-platform/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (strict TypeScript compile)
+        run: npm run build
+
+      - name: Run test suite
+        run: npm test
+
+  # =====================================================================
+  # Python services
+  # =====================================================================
+  ingestion-inspection-service-tests:
+    name: ingestion-inspection-service (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/ingestion-inspection-service
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install ffmpeg/ffprobe (required for integration tests; suite self-skips if unavailable)
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Create virtual environment and install dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e ".[dev]"
+
+      - name: Run test suite
+        run: |
+          source .venv/bin/activate
+          pytest -v
+
+  predictive-qoe-ml-service-tests:
+    name: predictive-qoe-ml-service (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/predictive-qoe-ml-service
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Create virtual environment and install dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e ".[dev]"
+
+      - name: Run test suite
+        run: |
+          source .venv/bin/activate
+          pytest -v
+
+  # =====================================================================
+  # Go services
+  # =====================================================================
+  distributed-encoding-orchestrator-tests:
+    name: distributed-encoding-orchestrator (go test -race)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/distributed-encoding-orchestrator
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: services/distributed-encoding-orchestrator/go.sum
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test -race
+        run: go test ./... -race
+
+  edge-packaging-and-manifest-service-tests:
+    name: edge-packaging-and-manifest-service (go test -race -count=1)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/edge-packaging-and-manifest-service
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: services/edge-packaging-and-manifest-service/go.sum
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: gofmt check
+        run: |
+          UNFORMATTED="$(gofmt -l .)"
+          if [ -n "$UNFORMATTED" ]; then
+            echo "The following files are not gofmt-formatted:"
+            echo "$UNFORMATTED"
+            exit 1
+          fi
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test -race -count=1
+        run: go test ./... -race -count=1
+
+  multi-cdn-edge-routing-service-tests:
+    name: multi-cdn-edge-routing-service (go test -race)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/multi-cdn-edge-routing-service
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: services/multi-cdn-edge-routing-service/go.sum
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test -race
+        run: go test ./... -race
+
+  # =====================================================================
+  # Aggregate gate — mirrors docs/testing-and-benchmarking.md's "Total:
+  # 190/190 automated tests passing" framing: CI as a whole is green only
+  # if every one of the seven service jobs above is green.
+  # =====================================================================
+  all-services-tests-passed:
+    name: All service test suites passed
+    runs-on: ubuntu-latest
+    needs:
+      - control-plane-api-gateway-tests
+      - analytics-telemetry-platform-tests
+      - ingestion-inspection-service-tests
+      - predictive-qoe-ml-service-tests
+      - distributed-encoding-orchestrator-tests
+      - edge-packaging-and-manifest-service-tests
+      - multi-cdn-edge-routing-service-tests
+    steps:
+      - name: Confirm all seven service jobs succeeded
+        run: echo "All seven service test suites passed."

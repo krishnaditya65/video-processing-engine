@@ -1,0 +1,18 @@
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# Go
+/bin/
+
+# Misc
+.DS_Store
+*.log

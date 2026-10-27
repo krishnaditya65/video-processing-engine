@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ingestion-inspection-service"
+version = "0.1.0"
+description = "Ingestion & Inspection Plane: pre-transcode structural analysis of mezzanine video assets (scene cuts, black frames, color space/HDR, loudness)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+dependencies = [
+    "numpy>=1.24",
+    "opencv-python-headless>=4.8",
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.23",
+    "pydantic>=2.0",
+    "prometheus_client>=0.17",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "httpx>=0.24",
+]
+
+[project.scripts]
+ingestion-inspection-service = "ingestion_inspection_service.cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

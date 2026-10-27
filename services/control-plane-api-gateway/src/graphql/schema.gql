@@ -1,0 +1,185 @@
+# ------------------------------------------------------
+# THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+# ------------------------------------------------------
+
+input CreatePlaybackSessionInput {
+  """
+  DRM systems the client declares support for, in the client's own preference order.
+  """
+  clientSupportedDrmSystemIdentifiers: [String!]!
+
+  """
+  Requesting device's platform family, e.g. 'ios', 'android', 'web', 'smarttv', 'xbox'.
+  """
+  devicePlatformFamily: String!
+
+  """Coarse network condition hint supplied by the client."""
+  networkConditionHint: String!
+
+  """The video asset the caller wants to begin playing."""
+  videoAssetIdentifier: ID!
+}
+
+"""
+A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
+"""
+scalar DateTime
+
+"""
+DRM system negotiated for a playback session via the DRM selection strategy factory.
+"""
+type DrmConfiguration {
+  licenseAcquisitionEndpointUrl: String!
+  negotiatedSecurityLevel: String!
+  selectedDrmSystemIdentifier: String!
+}
+
+"""Live progress snapshot of a distributedEncodingWorkflow run."""
+type EncodingWorkflowProgress {
+  completedSceneCount: Int!
+  currentStage: String!
+  totalSceneCount: Int!
+}
+
+type Mutation {
+  """
+  Creates a playback session, negotiating DRM configuration for the requesting device and persisting session state to Redis.
+  """
+  createPlaybackSession(input: CreatePlaybackSessionInput!): PlaybackSession!
+
+  """
+  Registers a newly-uploaded raw mezzanine/ProRes video asset for downstream ingestion + encoding.
+  """
+  registerRawVideoAsset(input: RegisterRawVideoAssetInput!): VideoAsset!
+
+  """
+  Starts the distributedEncodingWorkflow Temporal workflow for a registered video asset (circuit-breaker protected).
+  """
+  startEncodingForVideoAsset(videoAssetIdentifier: ID!): VideoAsset!
+}
+
+"""
+Encoding job status for a single scene within a distributed encoding workflow run.
+"""
+type PerSceneEncodingJobStatus {
+  """One of PENDING | ENCODING | COMPLETED | FAILED."""
+  jobStatus: String!
+  sceneIndex: Int!
+
+  """
+  Selected bitrate ladder (kbps) for this scene, once convex-hull optimisation has run.
+  """
+  selectedBitrateLadderKbps: [Int!]
+}
+
+"""
+Resolved manifest URL and bitrate ladder for a playback session, cache-aside resolved.
+"""
+type PersonalizedManifestResolution {
+  bitrateLadderKbps: [Int!]!
+  manifestUrl: String!
+
+  """
+  Whether this result was served from the Redis manifest cache (cache-aside hit) or freshly computed.
+  """
+  wasServedFromCache: Boolean!
+}
+
+"""
+A playback session created for a device/user pair against a specific video asset.
+"""
+type PlaybackSession {
+  createdAtIsoTimestamp: DateTime!
+  devicePlatformFamily: String!
+  negotiatedDrmConfiguration: DrmConfiguration!
+  networkConditionHint: String!
+  playbackSessionIdentifier: ID!
+  sessionTimeToLiveInSeconds: Int!
+  videoAssetIdentifier: ID!
+}
+
+type Query {
+  """Lists every video asset currently tracked by the control plane."""
+  allVideoAssets: [VideoAsset!]!
+
+  """
+  Fetches live distributedEncodingWorkflow progress for an asset; null if unavailable (no workflow yet, or orchestrator circuit breaker is open).
+  """
+  encodingWorkflowProgressForVideoAsset(videoAssetIdentifier: ID!): EncodingWorkflowProgress
+
+  """Fetches an active playback session by its identifier."""
+  playbackSession(playbackSessionIdentifier: ID!): PlaybackSession!
+
+  """
+  Resolves (cache-aside, via Redis) the personalised manifest URL and bitrate ladder for a playback session.
+  """
+  resolvePersonalizedManifestUrlForPlaybackSession(playbackSessionIdentifier: ID!): PersonalizedManifestResolution!
+
+  """Fetches a single registered video asset by its identifier."""
+  videoAsset(videoAssetIdentifier: ID!): VideoAsset!
+}
+
+input RegisterRawVideoAssetInput {
+  """Human-readable title for editorial/CMS display."""
+  displayTitle: String!
+
+  """Storage URI (e.g. s3://bucket/key.mov) of the raw mezzanine upload."""
+  sourceMezzanineStorageUri: String!
+}
+
+"""A single detected scene/shot segment within an asset's structural map."""
+type StructuralMapSceneSegment {
+  """Exclusive scene end time, in seconds from asset start."""
+  endTimeInSeconds: Float!
+
+  """
+  Heuristic perceptual complexity score (0-100) driving bitrate ladder selection.
+  """
+  perceptualComplexityScore: Float!
+
+  """Zero-based, stable scene index within the asset."""
+  sceneIndex: Int!
+
+  """Inclusive scene start time, in seconds from asset start."""
+  startTimeInSeconds: Float!
+}
+
+"""
+A raw video asset tracked by the control plane, from upload through published, playable output.
+"""
+type VideoAsset {
+  """
+  Temporal workflow id of the associated distributedEncodingWorkflow run, if encoding has started.
+  """
+  associatedTemporalWorkflowIdentifier: String
+  currentEncodingStatus: VideoAssetEncodingStatus!
+  currentIngestionStatus: VideoAssetIngestionStatus!
+  displayTitle: String!
+  lastUpdatedAtIsoTimestamp: DateTime!
+  perSceneEncodingJobs: [PerSceneEncodingJobStatus!]
+  registeredAtIsoTimestamp: DateTime!
+
+  """Storage URI of the original raw mezzanine/ProRes upload."""
+  sourceMezzanineStorageUri: String!
+  structuralMapSceneSegments: [StructuralMapSceneSegment!]
+  videoAssetIdentifier: ID!
+}
+
+"""Lifecycle stage of the distributed encoding workflow for an asset."""
+enum VideoAssetEncodingStatus {
+  ENCODING_FAILED
+  ENCODING_IN_PROGRESS
+  NOT_STARTED
+  PUBLISHED
+}
+
+"""
+Lifecycle stage of raw asset ingestion, from upload through structural-map generation.
+"""
+enum VideoAssetIngestionStatus {
+  AWAITING_UPLOAD
+  GENERATING_STRUCTURAL_MAP
+  INGESTION_FAILED
+  READY_FOR_ENCODING
+  VALIDATING
+}

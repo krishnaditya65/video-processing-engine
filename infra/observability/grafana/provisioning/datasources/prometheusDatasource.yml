@@ -1,0 +1,15 @@
+# Auto-provisions the Prometheus datasource so the dashboards in
+# grafana/dashboards/ work immediately on `docker compose up -d` with no
+# manual "Add data source" click-through in the Grafana UI.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: hyperscalePlatformPrometheusDatasource
+    type: prometheus
+    access: proxy
+    url: http://prometheusMetricsServer:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: 15s

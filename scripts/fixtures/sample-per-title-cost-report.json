@@ -1,0 +1,96 @@
+{
+  "reportGeneratedAt": "2026-08-11T00:00:00Z",
+  "billingWindow": { "startDate": "2026-08-01", "endDate": "2026-08-11" },
+  "computeResourceRates": {
+    "cpuSecondPriceUsd": 0.00003,
+    "gpuSecondPriceUsd": 0.0003
+  },
+  "storageRates": { "originStorageGigabyteMonthPriceUsd": 0.021 },
+  "cdnEgressRates": { "gigabyteEgressPriceUsd": 0.045 },
+  "titles": [
+    {
+      "titleId": "asset-stranger-things-s05e01",
+      "displayTitle": "Stranger Things S05E01",
+      "encodingCost": {
+        "jobIdentifier": "job-st-s05e01-a1b2c3",
+        "chunkCount": 3600,
+        "totalCpuSeconds": 48600.0,
+        "totalGpuSeconds": 5400.0,
+        "totalEstimatedCostUsd": 3.1806
+      },
+      "originStorage": {
+        "elementaryStreamsGigabytes": 84.2,
+        "gigabyteMonths": 84.2,
+        "estimatedCostUsd": 1.7682
+      },
+      "cdnEgress": {
+        "gigabytesServed": 412300.5,
+        "estimatedCostUsd": 18553.5225
+      },
+      "viewingHoursServed": 198450
+    },
+    {
+      "titleId": "asset-the-crown-s06e01",
+      "displayTitle": "The Crown S06E01",
+      "encodingCost": {
+        "jobIdentifier": "job-crown-s06e01-d4e5f6",
+        "chunkCount": 2880,
+        "totalCpuSeconds": 38880.0,
+        "totalGpuSeconds": 0.0,
+        "totalEstimatedCostUsd": 1.1664
+      },
+      "originStorage": {
+        "elementaryStreamsGigabytes": 61.5,
+        "gigabyteMonths": 61.5,
+        "estimatedCostUsd": 1.2915
+      },
+      "cdnEgress": {
+        "gigabytesServed": 87920.0,
+        "estimatedCostUsd": 3956.4
+      },
+      "viewingHoursServed": 41200
+    },
+    {
+      "titleId": "asset-our-planet-ii-e03",
+      "displayTitle": "Our Planet II E03",
+      "encodingCost": {
+        "jobIdentifier": "job-op2-e03-g7h8i9",
+        "chunkCount": 1560,
+        "totalCpuSeconds": 12480.0,
+        "totalGpuSeconds": 8320.0,
+        "totalEstimatedCostUsd": 2.8704
+      },
+      "originStorage": {
+        "elementaryStreamsGigabytes": 112.7,
+        "gigabyteMonths": 112.7,
+        "estimatedCostUsd": 2.3667
+      },
+      "cdnEgress": {
+        "gigabytesServed": 156800.25,
+        "estimatedCostUsd": 7056.01125
+      },
+      "viewingHoursServed": 62300
+    },
+    {
+      "titleId": "asset-formula-1-drive-to-survive-s07e02",
+      "displayTitle": "Formula 1: Drive to Survive S07E02",
+      "encodingCost": {
+        "jobIdentifier": "job-f1-s07e02-j1k2l3",
+        "chunkCount": 2700,
+        "totalCpuSeconds": 20250.0,
+        "totalGpuSeconds": 16200.0,
+        "totalEstimatedCostUsd": 5.4675
+      },
+      "originStorage": {
+        "elementaryStreamsGigabytes": 73.9,
+        "gigabyteMonths": 73.9,
+        "estimatedCostUsd": 1.5519
+      },
+      "cdnEgress": {
+        "gigabytesServed": 245600.75,
+        "estimatedCostUsd": 11052.03375
+      },
+      "viewingHoursServed": 118900
+    }
+  ]
+}

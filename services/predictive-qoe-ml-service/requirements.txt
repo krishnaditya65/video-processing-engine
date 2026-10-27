@@ -1,0 +1,12 @@
+# Runtime dependencies
+fastapi>=0.110
+uvicorn[standard]>=0.29
+scikit-learn>=1.4
+numpy>=1.26
+pydantic>=2.6
+websockets>=12.0
+joblib>=1.3
+
+# Test/dev dependencies
+pytest>=8.0
+httpx>=0.27

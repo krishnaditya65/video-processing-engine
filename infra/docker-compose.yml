@@ -1,0 +1,191 @@
+########################################################################
+# Local Development Orchestration — Hyperscale Video Processing Engine
+#
+# This compose file stands up the full dependency graph needed to run
+# every microservice in this monorepo against real (but single-node,
+# development-scale) infrastructure:
+#
+#   redisSessionAndCacheStore        -> control-plane-api-gateway session/cache state
+#   temporalWorkflowServer           -> control-plane-api-gateway DAG orchestration
+#   temporalWorkflowServerDatabase   -> Temporal's own persistence store
+#   redpandaTelemetryStreamBroker    -> analytics-telemetry-platform ingestion stream
+#   clickhouseAnalyticsDataLake      -> analytics-telemetry-platform OLAP store
+#   minioOriginObjectStorage         -> origin storage for elementary video streams
+#
+# This is a DEVELOPMENT topology (single broker, single ClickHouse node,
+# single Temporal server). Production sizing/HA notes live in
+# docs/architecture.md and docs/slo-sli-sla.md.
+#
+# Usage:
+#   cd infra && docker compose up -d
+########################################################################
+
+version: "3.9"
+
+services:
+  # ---------------------------------------------------------------------
+  # Redis: session state, GraphQL manifest-metadata cache-aside layer,
+  # and rate-limiting token buckets for control-plane-api-gateway.
+  # ---------------------------------------------------------------------
+  redisSessionAndCacheStore:
+    image: redis:7.2-alpine
+    container_name: redisSessionAndCacheStore
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ---------------------------------------------------------------------
+  # Temporal: durable workflow engine backing the
+  # distributedEncodingWorkflow DAG (ingest -> structural map -> fan-out
+  # scene encodes -> convex-hull select -> package -> publish).
+  # ---------------------------------------------------------------------
+  temporalWorkflowServerDatabase:
+    image: postgres:16-alpine
+    container_name: temporalWorkflowServerDatabase
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_DB: temporal
+    ports:
+      - "5432:5432"
+
+  temporalWorkflowServer:
+    image: temporalio/auto-setup:1.24.2
+    container_name: temporalWorkflowServer
+    depends_on:
+      - temporalWorkflowServerDatabase
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: temporalWorkflowServerDatabase
+    ports:
+      - "7233:7233"
+
+  # ---------------------------------------------------------------------
+  # Redpanda: Kafka-API-compatible high-throughput broker absorbing
+  # millions of QoE playback beacons per second before ClickHouse insert.
+  # ---------------------------------------------------------------------
+  redpandaTelemetryStreamBroker:
+    image: redpandadata/redpanda:v24.1.9
+    container_name: redpandaTelemetryStreamBroker
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp=1
+      - --memory=1G
+      - --reserve-memory=0M
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://redpandaTelemetryStreamBroker:9092
+    ports:
+      - "9092:9092"
+
+  # ---------------------------------------------------------------------
+  # ClickHouse: columnar OLAP data lake for QoE telemetry, sized for
+  # sub-second aggregate queries over billions of playback-beacon rows.
+  # Schema/DDL lives in
+  # services/analytics-telemetry-platform/sql/telemetrySchema.sql
+  # ---------------------------------------------------------------------
+  clickhouseAnalyticsDataLake:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: clickhouseAnalyticsDataLake
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+
+  # ---------------------------------------------------------------------
+  # MinIO: S3-API-compatible origin object storage for elementary video
+  # streams (separate video/audio tracks) consumed by the JIT packager.
+  # ---------------------------------------------------------------------
+  minioOriginObjectStorage:
+    image: minio/minio:RELEASE.2024-05-10T01-41-38Z
+    container_name: minioOriginObjectStorage
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: originStorageAdmin
+      MINIO_ROOT_PASSWORD: originStorageSecret
+    ports:
+      - "9010:9000"
+      - "9011:9001"
+    volumes:
+      - minioOriginObjectStorageVolume:/data
+
+  # ---------------------------------------------------------------------
+  # Prometheus: scrapes /metrics from all seven services (six existing +
+  # multi-cdn-edge-routing-service) per infra/observability/prometheus.yml.
+  # Uses `host.docker.internal` targets because the application services
+  # run on the developer's host (npm/go run/uvicorn), not as compose
+  # services themselves — see the scrape config's header comment for how
+  # to retarget once/if the services are containerized here too.
+  # See infra/observability/README.md for the RED/USE methodology this
+  # scrape config and the Grafana dashboards below implement.
+  # ---------------------------------------------------------------------
+  prometheusMetricsServer:
+    image: prom/prometheus:v2.53.0
+    container_name: prometheusMetricsServer
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheusTimeSeriesDataVolume:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------
+  # Grafana: pre-provisioned with the Prometheus datasource above and the
+  # two hand-authored dashboards in infra/observability/grafana/dashboards/
+  # ("Platform Overview" RED dashboard, "Encoding Factory" USE dashboard).
+  # Default login is admin/admin (GF_SECURITY_ADMIN_PASSWORD below) — for
+  # local development only, per the same "development topology" caveat
+  # documented at the top of this file for the other infra services.
+  # ---------------------------------------------------------------------
+  grafanaDashboardServer:
+    image: grafana/grafana:11.1.0
+    container_name: grafanaDashboardServer
+    depends_on:
+      - prometheusMetricsServer
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/etc/grafana/provisioning/dashboards/json:ro
+      - grafanaDashboardServerDataVolume:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  minioOriginObjectStorageVolume:
+  prometheusTimeSeriesDataVolume:
+  grafanaDashboardServerDataVolume:

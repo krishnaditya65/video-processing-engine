@@ -1,0 +1,227 @@
+{
+  "id": null,
+  "uid": "hyperscale-video-platform-overview",
+  "title": "Hyperscale Video Platform — Platform Overview (RED)",
+  "description": "Cross-service RED metrics (Rate, Errors, Duration) for all seven microservices in the custom-video-processing-engine monorepo. Every panel is scoped by the `service` label attached in infra/observability/prometheus.yml. See infra/observability/README.md for the full RED/USE methodology writeup and known caveats (metric names are the documented/plausible convention each sibling service exporter is expected to follow — not yet confirmed against a live scrape in this environment).",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "timezone": "utc",
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "tags": ["hyperscale-video-platform", "red-metrics", "platform-overview"],
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "hyperscalePlatformPrometheusDatasource" },
+        "query": "label_values(http_requests_total, service)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "current": { "selected": true, "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Rate — requests/sec per service",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Request rate by service (req/s)",
+      "description": "sum(rate(http_requests_total[$__rate_interval])) by (service) — the R in RED. Covers control-plane-api-gateway GraphQL traffic, edge-packaging-and-manifest-service /manifest and /package traffic, and multi-cdn-edge-routing-service routing decisions.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "hyperscalePlatformPrometheusDatasource" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "spanNulls": true }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "lastNotNull"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(http_requests_total{service=~\"$service\"}[$__rate_interval])) by (service)",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "GraphQL operation rate — control-plane-api-gateway (op/s)",
+      "description": "sum(rate(graphql_resolver_calls_total[$__rate_interval])) by (operationName) — breaks out createPlaybackSession, playbackSession, resolvePersonalizedManifestUrlForPlaybackSession, videoAsset, allVideoAssets.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "hyperscalePlatformPrometheusDatasource" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(graphql_resolver_calls_total{service=\"control-plane-api-gateway\"}[$__rate_interval])) by (operationName)",
+          "legendFormat": "{{operationName}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "row",
+      "title": "Errors — error rate % per service",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "HTTP error rate by service (%)",
+      "description": "100 * sum(rate(http_requests_total{status_code=~\"5..\"}[$__rate_interval])) by (service) / sum(rate(http_requests_total[$__rate_interval])) by (service) — the E in RED. Thresholds line drawn at the 0.1% control-plane-api-gateway GraphQL error budget from docs/slo-sli-sla.md.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "hyperscalePlatformPrometheusDatasource" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "thresholdsStyle": { "mode": "line" } },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.1 },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * sum(rate(http_requests_total{service=~\"$service\", status_code=~\"5..\"}[$__rate_interval])) by (service) / sum(rate(http_requests_total{service=~\"$service\"}[$__rate_interval])) by (service)",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "control-plane-api-gateway Redis connectivity (ECONNREFUSED degrade check)",
+      "description": "redis_client_connected{service=\"control-plane-api-gateway\"} — 1 when redisSessionAndCacheStore is reachable, 0 when the gateway has degraded to cache-miss/no-session-persistence mode (see chaos-testing/experiments/stop-redis-verify-control-plane-graceful-degradation.sh).",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "hyperscalePlatformPrometheusDatasource" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DEGRADED (Redis unreachable)", "color": "red" } } },
+            { "type": "value", "options": { "1": { "text": "HEALTHY", "color": "green" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value_and_name", "colorMode": "background" },
+      "targets": [{ "refId": "A", "expr": "redis_client_connected{service=\"control-plane-api-gateway\"}" }]
+    },
+    {
+      "id": 7,
+      "type": "row",
+      "title": "Duration — latency percentiles per service",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Playback session creation latency — p50/p95/p99 (control-plane-api-gateway)",
+      "description": "histogram_quantile over http_request_duration_seconds_bucket{route=\"createPlaybackSession\"}. Targets from docs/slo-sli-sla.md §1: p50 40ms / p95 90ms / p99 120ms.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 19 },
+      "datasource": { "type": "prometheus", "uid": "hyperscalePlatformPrometheusDatasource" },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 5 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{service=\"control-plane-api-gateway\", route=\"createPlaybackSession\"}[$__rate_interval])) by (le))", "legendFormat": "p50" },
+        { "refId": "B", "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service=\"control-plane-api-gateway\", route=\"createPlaybackSession\"}[$__rate_interval])) by (le))", "legendFormat": "p95" },
+        { "refId": "C", "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service=\"control-plane-api-gateway\", route=\"createPlaybackSession\"}[$__rate_interval])) by (le))", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Manifest + JIT package latency — p99 (edge-packaging-and-manifest-service)",
+      "description": "Targets from docs/slo-sli-sla.md §4: manifest generation p99 < 15ms, JIT chunk packaging p99 < 30ms.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 19 },
+      "datasource": { "type": "prometheus", "uid": "hyperscalePlatformPrometheusDatasource" },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 5 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service=\"edge-packaging-and-manifest-service\", route=\"/manifest/:assetId\"}[$__rate_interval])) by (le))", "legendFormat": "p99 /manifest/{assetId}" },
+        { "refId": "B", "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service=\"edge-packaging-and-manifest-service\", route=\"/package/:assetId/:chunkId\"}[$__rate_interval])) by (le))", "legendFormat": "p99 /package/{assetId}/{chunkId}" }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Predictive QoE ML inference latency — p99 (predictive-qoe-ml-service)",
+      "description": "Target from docs/slo-sli-sla.md §6: p99 < 20ms to preserve the 10-second early-warning budget.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 27 },
+      "datasource": { "type": "prometheus", "uid": "hyperscalePlatformPrometheusDatasource" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 5, "thresholdsStyle": { "mode": "line" } },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.02 }] }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.99, sum(rate(inference_latency_seconds_bucket{service=\"predictive-qoe-ml-service\"}[$__rate_interval])) by (le))", "legendFormat": "p99 inference latency" }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Analytics ingestion throughput (beacons/sec)",
+      "description": "Target from docs/slo-sli-sla.md §5: 2,000,000 beacons/sec sustained. sum(rate(telemetry_beacons_ingested_total[$__rate_interval])).",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 27 },
+      "datasource": { "type": "prometheus", "uid": "hyperscalePlatformPrometheusDatasource" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(telemetry_beacons_ingested_total{service=\"analytics-telemetry-platform\"}[$__rate_interval]))", "legendFormat": "beacons/sec ingested" },
+        { "refId": "B", "expr": "sum(rate(telemetry_beacons_dropped_total{service=\"analytics-telemetry-platform\"}[$__rate_interval]))", "legendFormat": "beacons/sec dropped (graceful-loss tolerance)" }
+      ]
+    }
+  ]
+}

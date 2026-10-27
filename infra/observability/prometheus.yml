@@ -1,0 +1,171 @@
+########################################################################
+# Prometheus scrape configuration — Hyperscale Video Processing Engine
+#
+# Scrapes the `/metrics` endpoint of all seven services in the monorepo.
+# Sibling work-streams are concurrently adding a Prometheus exporter to
+# each service (NestJS/TS + Go services expose `/metrics` on their main
+# HTTP port; Python/FastAPI services expose it via `prometheus_client` on
+# their FastAPI app's main port), so this file was authored against each
+# service's *documented default port* rather than verified against a live
+# `/metrics` response — see infra/observability/README.md "Port provenance"
+# for exactly which ports are confirmed from source/README vs. assumed by
+# convention because the service does not document one yet.
+#
+# Target addressing: `host.docker.internal` is used so this Prometheus
+# container (started via `infra/docker-compose.yml`) can reach services
+# that are run directly on the developer's host machine (`npm run start:dev`,
+# `go run ./cmd/server`, `uvicorn ...`) rather than as compose services
+# themselves — the seven application services are not (yet) containerized
+# in infra/docker-compose.yml, only their shared infrastructure
+# dependencies are (Redis, Temporal, Redpanda, ClickHouse, MinIO).
+# If/when the services are containerized under compose, swap each target
+# below for the container's service-DNS name (e.g.
+# `controlPlaneApiGateway:4000`) instead of `host.docker.internal:<port>`.
+########################################################################
+
+global:
+  scrape_interval: 15s      # default cadence for all jobs unless overridden
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+  external_labels:
+    monorepo: custom-video-processing-engine
+    environment: local-development
+
+scrape_configs:
+  # -----------------------------------------------------------------
+  # 1. control-plane-api-gateway (TypeScript / NestJS + GraphQL)
+  #    Port: 4000 — CONFIRMED from
+  #    services/control-plane-api-gateway/src/config/applicationConfigurationService.ts
+  #    (`HTTP_SERVER_LISTEN_PORT`, default 4000). GraphQL is served on
+  #    the same HTTP listener at /graphql; /metrics is expected on the
+  #    same port per the sibling NestJS metrics convention.
+  # -----------------------------------------------------------------
+  - job_name: control-plane-api-gateway
+    scrape_interval: 10s   # hot path (session creation, manifest resolution) — scrape more often
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:4000"]
+        labels:
+          service: control-plane-api-gateway
+          language: typescript
+          plane: control-plane
+
+  # -----------------------------------------------------------------
+  # 2. ingestion-inspection-service (Python / FastAPI)
+  #    Port: 8080 — CONFIRMED from
+  #    services/ingestion-inspection-service/README.md
+  #    (`uvicorn ingestion_inspection_service.api.app:app --host 0.0.0.0 --port 8080`)
+  # -----------------------------------------------------------------
+  - job_name: ingestion-inspection-service
+    scrape_interval: 30s   # bursty/batch plane — runs once per asset upload
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+        labels:
+          service: ingestion-inspection-service
+          language: python
+          plane: ingestion-inspection
+
+  # -----------------------------------------------------------------
+  # 3. distributed-encoding-orchestrator (Go)
+  #    Port: 9100 — ASSUMED. The current `cmd/orchestrator/main.go` is a
+  #    CLI demo binary with no HTTP/gRPC listener (documented explicitly
+  #    in its own header comment); no port is documented anywhere in the
+  #    service's README for a future server binary. 9100 follows this
+  #    stack's convention of the 9100/9106+ node/worker-exporter block
+  #    and is called out here as a placeholder to be corrected once the
+  #    sibling adding `/metrics` picks (or documents) a real port.
+  # -----------------------------------------------------------------
+  - job_name: distributed-encoding-orchestrator
+    scrape_interval: 15s
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:9100"]
+        labels:
+          service: distributed-encoding-orchestrator
+          language: go
+          plane: encoding-factory
+
+  # -----------------------------------------------------------------
+  # 4. edge-packaging-and-manifest-service (Go)
+  #    Port: 8080 — CONFIRMED from
+  #    services/edge-packaging-and-manifest-service/cmd/server/main.go
+  #    (`defaultListenAddress = ":8080"`, overridable via
+  #    `EDGE_PACKAGING_LISTEN_ADDR`). go.mod already vendors
+  #    github.com/prometheus/client_golang, consistent with the sibling
+  #    `/metrics` rollout.
+  # -----------------------------------------------------------------
+  - job_name: edge-packaging-and-manifest-service
+    scrape_interval: 10s   # lowest-latency plane, runs on every playback request
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8081"]
+        labels:
+          service: edge-packaging-and-manifest-service
+          language: go
+          plane: edge-packaging
+
+  # -----------------------------------------------------------------
+  # 5. analytics-telemetry-platform (TypeScript)
+  #    Port: 9464 — ASSUMED. This service is currently a Kafka/Redpanda
+  #    consumer + ClickHouse writer with no HTTP listener documented in
+  #    its README/src; 9464 is the OpenTelemetry-community-conventional
+  #    default port for a Prometheus exporter on a Node process (this
+  #    service already depends on @opentelemetry/sdk-node), used here as
+  #    the most plausible default pending sibling confirmation.
+  # -----------------------------------------------------------------
+  - job_name: analytics-telemetry-platform
+    scrape_interval: 15s
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:9464"]
+        labels:
+          service: analytics-telemetry-platform
+          language: typescript
+          plane: analytics-telemetry
+
+  # -----------------------------------------------------------------
+  # 6. predictive-qoe-ml-service (Python / FastAPI)
+  #    Port: 8000 — CONFIRMED as FastAPI/uvicorn's implicit default: the
+  #    service's README launch command
+  #    (`uvicorn predictive_qoe_ml_service.api.main:app --reload --app-dir src`)
+  #    does not pass `--port`, so uvicorn binds its default, 8000.
+  # -----------------------------------------------------------------
+  - job_name: predictive-qoe-ml-service
+    scrape_interval: 10s   # p99 < 20ms inference SLO — scrape frequently to catch regressions
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8000"]
+        labels:
+          service: predictive-qoe-ml-service
+          language: python
+          plane: predictive-analytics
+
+  # -----------------------------------------------------------------
+  # 7. multi-cdn-edge-routing-service (Go) — sibling service, in progress
+  #    Port: 8082 — ASSUMED. go.mod already vendors
+  #    github.com/prometheus/client_golang and scaffolds an
+  #    internal/httpapi package, but no cmd/server main.go listener code
+  #    or documented port exists yet at the time this file was authored.
+  #    8082 follows the 808x block used by the other two edge-facing Go
+  #    services (8080, 8081) in this file.
+  # -----------------------------------------------------------------
+  - job_name: multi-cdn-edge-routing-service
+    scrape_interval: 10s
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8082"]
+        labels:
+          service: multi-cdn-edge-routing-service
+          language: go
+          plane: edge-routing
+
+  # -----------------------------------------------------------------
+  # Prometheus self-monitoring
+  # -----------------------------------------------------------------
+  - job_name: prometheus
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          service: prometheus
